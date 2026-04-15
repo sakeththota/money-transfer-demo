@@ -7,10 +7,14 @@ import {
   queryWorkflow,
   approveTransfer,
   listWorkflows,
+  listSchedules,
   scheduleWorkflow,
+  getScheduleInfo,
   ServerInfo,
   TransferStatus,
   WorkflowStatus,
+  ScheduleInfo,
+  ScheduleStatus,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -70,6 +74,55 @@ const TO_ACCOUNTS = [
   { id: "emma", name: "Emma Stockton", initials: "ES", number: "****2233" },
 ];
 
+// Countdown Timer Component
+function CountdownTimer({ targetTime, label, onExpire }: {
+  targetTime: Date;
+  label?: string;
+  onExpire?: () => void;
+}) {
+  const [timeLeft, setTimeLeft] = useState<number>(0);
+
+  useEffect(() => {
+    const calculateTimeLeft = () => {
+      const diff = targetTime.getTime() - Date.now();
+      return Math.max(0, Math.floor(diff / 1000));
+    };
+
+    setTimeLeft(calculateTimeLeft());
+    const interval = setInterval(() => {
+      const newTimeLeft = calculateTimeLeft();
+      setTimeLeft(newTimeLeft);
+      if (newTimeLeft === 0 && onExpire) {
+        onExpire();
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [targetTime, onExpire]);
+
+  const formatTime = (seconds: number) => {
+    if (seconds >= 3600) {
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      const s = seconds % 60;
+      return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    }
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
+  return (
+    <div className="flex items-center gap-2 font-mono text-sm">
+      <Clock className="h-4 w-4 text-muted-foreground" />
+      {label && <span className="text-muted-foreground">{label}</span>}
+      <span className={timeLeft <= 10 ? "text-amber-600 font-semibold" : ""}>
+        {formatTime(timeLeft)}
+      </span>
+    </div>
+  );
+}
+
 const truncateServerAddress = (address: string | undefined) => {
   if (!address) return "...";
   // For cloud addresses like "namespace.accountId.tmprl.cloud:7233"
@@ -104,6 +157,9 @@ export default function Home() {
   const [workflows, setWorkflows] = useState<WorkflowStatus[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scheduleInfo, setScheduleInfo] = useState<ScheduleInfo | null>(null);
+  const [approvalStartTime, setApprovalStartTime] = useState<Date | null>(null);
+  const [schedules, setSchedules] = useState<ScheduleStatus[]>([]);
 
   useEffect(() => {
     getServerInfo()
@@ -115,6 +171,9 @@ export default function Home() {
     listWorkflows()
       .then((data) => setWorkflows(data || []))
       .catch((err) => console.error("Failed to list workflows:", err));
+    listSchedules()
+      .then((data) => setSchedules(data || []))
+      .catch((err) => console.error("Failed to list schedules:", err));
   }, []);
 
   useEffect(() => {
@@ -123,11 +182,47 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [refreshWorkflows]);
 
+  // Fetch schedule info when active workflow is a schedule
+  useEffect(() => {
+    if (!activeWorkflowId || !activeWorkflowId.startsWith("schedule-")) {
+      setScheduleInfo(null);
+      return;
+    }
+
+    let isActive = true;
+    const fetchScheduleInfo = async () => {
+      try {
+        const info = await getScheduleInfo(activeWorkflowId);
+        if (isActive) setScheduleInfo(info);
+      } catch (err) {
+        console.error("Failed to get schedule info:", err);
+        if (isActive) setScheduleInfo(null);
+      }
+    };
+
+    fetchScheduleInfo();
+    const interval = setInterval(fetchScheduleInfo, 5000);
+    return () => {
+      isActive = false;
+      clearInterval(interval);
+    };
+  }, [activeWorkflowId]);
+
+  // Track when approval state starts for countdown
+  useEffect(() => {
+    if (transferStatus?.transferState === "waiting" && !approvalStartTime) {
+      setApprovalStartTime(new Date());
+    } else if (transferStatus?.transferState !== "waiting") {
+      setApprovalStartTime(null);
+    }
+  }, [transferStatus?.transferState, approvalStartTime]);
+
   useEffect(() => {
     if (!activeWorkflowId) return;
 
     // Clear previous status when switching workflows
     setTransferStatus(null);
+    setApprovalStartTime(null);
 
     // Track if this effect is still active (prevents stale updates)
     let isActive = true;
@@ -456,22 +551,47 @@ export default function Home() {
                   </div>
 
                   {needsApproval && (
-                    <div className="rounded-md border border-amber-200 bg-amber-50 p-2.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 text-amber-700">
-                          <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
-                          <span className="text-xs">
-                            {isLargeTransfer ? "Requires approval" : "Manual approval"}
-                            {transferStatus?.approvalTime && ` (${transferStatus.approvalTime}s)`}
-                          </span>
+                    <div className="rounded-md border border-amber-200 bg-amber-50 p-3">
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 text-amber-700">
+                            <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
+                            <span className="text-xs font-medium">
+                              {isLargeTransfer ? "Requires approval" : "Manual approval"}
+                            </span>
+                          </div>
+                          <Button
+                            onClick={handleApprove}
+                            size="sm"
+                            className="h-7 px-2.5 text-xs bg-amber-500 hover:bg-amber-600"
+                          >
+                            Approve
+                          </Button>
                         </div>
-                        <Button
-                          onClick={handleApprove}
-                          size="sm"
-                          className="h-7 px-2.5 text-xs bg-amber-500 hover:bg-amber-600"
-                        >
-                          Approve
-                        </Button>
+                        {approvalStartTime && transferStatus?.approvalTime && (
+                          <div className="text-amber-700">
+                            <CountdownTimer
+                              targetTime={new Date(approvalStartTime.getTime() + transferStatus.approvalTime * 1000)}
+                              label="Expires in"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Schedule Info */}
+                  {scheduleInfo && scheduleInfo.nextRunTime && (
+                    <div className="rounded-md border border-blue-200 bg-blue-50 p-3">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-xs font-medium text-blue-700">Scheduled Transfer</span>
+                        <CountdownTimer
+                          targetTime={new Date(scheduleInfo.nextRunTime)}
+                          label="Next run in"
+                        />
+                        <p className="text-xs text-blue-600 mt-1">
+                          Workflow URL will be available after the schedule fires
+                        </p>
                       </div>
                     </div>
                   )}
@@ -490,13 +610,40 @@ export default function Home() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {workflows.length === 0 ? (
+                {workflows.length === 0 && schedules.length === 0 ? (
                   <div className="py-8 text-center">
                     <CreditCard className="mx-auto h-10 w-10 text-muted-foreground/50" />
                     <p className="mt-2 text-sm text-muted-foreground">No recent transfers</p>
                   </div>
                 ) : (
                   <div className="space-y-2 max-h-[280px] overflow-y-auto">
+                    {/* Scheduled Transfers */}
+                    {schedules.map((sched) => {
+                      const isActive = activeWorkflowId === sched.scheduleId;
+                      return (
+                        <button
+                          key={sched.scheduleId}
+                          onClick={() => setActiveWorkflowId(sched.scheduleId)}
+                          className={`w-full flex items-center justify-between rounded-lg border p-3 text-left transition-colors ${
+                            isActive
+                              ? "border-blue-500 bg-blue-50"
+                              : "border-blue-200 bg-blue-50/50 hover:bg-blue-100/50"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Clock className="h-3.5 w-3.5 text-blue-600" />
+                            <span className="font-mono text-xs truncate max-w-[120px]">
+                              {sched.scheduleId.replace("schedule-", "")}
+                            </span>
+                          </div>
+                          <Badge variant="info" className="bg-blue-100 text-blue-700">
+                            {sched.paused ? "Paused" : "Scheduled"}
+                          </Badge>
+                        </button>
+                      );
+                    })}
+
+                    {/* Regular Workflows */}
                     {workflows.map((wf) => {
                       // Use detailed status for active workflow, fall back to execution status
                       const isActive = activeWorkflowId === wf.workflowId;

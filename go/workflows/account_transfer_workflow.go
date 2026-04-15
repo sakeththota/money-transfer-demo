@@ -41,7 +41,7 @@ func AccountTransferWorkflow(ctx workflow.Context, input app.TransferInput) (out
 	}
 
 	var idempotencyKey string
-	_ = workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
+	_ = workflow.SideEffect(ctx, func(ctx workflow.Context) any {
 		return uuid.New().String()
 	}).Get(&idempotencyKey)
 

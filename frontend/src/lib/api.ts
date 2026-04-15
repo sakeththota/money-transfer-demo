@@ -85,3 +85,27 @@ export async function scheduleWorkflow(params: ScheduleParams): Promise<{ transf
   if (!res.ok) throw new Error('Failed to schedule workflow');
   return res.json();
 }
+
+export interface ScheduleInfo {
+  scheduleId: string;
+  nextRunTime: string | null;
+  paused: boolean;
+}
+
+export async function getScheduleInfo(scheduleId: string): Promise<ScheduleInfo> {
+  const res = await fetch(`${API_BASE}/scheduleInfo/${scheduleId}`);
+  if (!res.ok) throw new Error('Failed to get schedule info');
+  return res.json();
+}
+
+export interface ScheduleStatus {
+  scheduleId: string;
+  nextRunTime: string | null;
+  paused: boolean;
+}
+
+export async function listSchedules(): Promise<ScheduleStatus[]> {
+  const res = await fetch(`${API_BASE}/listSchedules`);
+  if (!res.ok) throw new Error('Failed to list schedules');
+  return res.json();
+}

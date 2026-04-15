@@ -53,7 +53,9 @@ func main() {
 	r.POST("/runQuery", handleRunQuery)
 	r.POST("/approveTransfer", handleApproveTransfer)
 	r.GET("/listWorkflows", handleListWorkflows)
+	r.GET("/listSchedules", handleListSchedules)
 	r.POST("/scheduleWorkflow", handleScheduleWorkflow)
+	r.GET("/scheduleInfo/:id", handleScheduleInfo)
 	r.GET("/test", func(c *gin.Context) {
 		c.String(http.StatusOK, "Hello from Go API!")
 	})
@@ -257,6 +259,43 @@ func handleListWorkflows(c *gin.Context) {
 	c.JSON(http.StatusOK, workflows)
 }
 
+type ScheduleStatus struct {
+	ScheduleId  string  `json:"scheduleId"`
+	NextRunTime *string `json:"nextRunTime"`
+	Paused      bool    `json:"paused"`
+}
+
+func handleListSchedules(c *gin.Context) {
+	iter := temporalClient.ScheduleClient().List(context.Background(), client.ScheduleListOptions{
+		PageSize: 20,
+	})
+
+	var schedules []ScheduleStatus
+	for iter.HasNext() {
+		entry, err := iter.Next()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		// Only include schedules that start with "schedule-" (from our app)
+		if len(entry.ID) > 0 && entry.ID[:min(9, len(entry.ID))] == "schedule-" {
+			var nextRun *string
+			if len(entry.Info.NextActionTimes) > 0 {
+				t := entry.Info.NextActionTimes[0].Format(time.RFC3339)
+				nextRun = &t
+			}
+			schedules = append(schedules, ScheduleStatus{
+				ScheduleId:  entry.ID,
+				NextRunTime: nextRun,
+				Paused:      entry.Info.Paused,
+			})
+		}
+	}
+
+	c.JSON(http.StatusOK, schedules)
+}
+
 type ScheduleParameters struct {
 	Amount        int    `json:"amount"`
 	FromAccount   string `json:"fromAccount"`
@@ -305,7 +344,7 @@ func handleScheduleWorkflow(c *gin.Context) {
 			},
 		},
 		Action: &client.ScheduleWorkflowAction{
-			ID:        fmt.Sprintf("%s-{{.ScheduledTime.Format \"20060102T150405\"}}", scheduleID),
+			ID:        scheduleID,
 			Workflow:  workflowType,
 			Args:      []interface{}{transferInput},
 			TaskQueue: taskQueue,
@@ -317,6 +356,32 @@ func handleScheduleWorkflow(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"transferId": scheduleID})
+}
+
+func handleScheduleInfo(c *gin.Context) {
+	scheduleID := c.Param("id")
+	if scheduleID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "schedule ID required"})
+		return
+	}
+
+	handle := temporalClient.ScheduleClient().GetHandle(context.Background(), scheduleID)
+	desc, err := handle.Describe(context.Background())
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+
+	var nextRunTime *time.Time
+	if len(desc.Info.NextActionTimes) > 0 {
+		nextRunTime = &desc.Info.NextActionTimes[0]
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"scheduleId":  scheduleID,
+		"nextRunTime": nextRunTime,
+		"paused":      desc.Schedule.State.Paused,
+	})
 }
 
 func generateReferenceNumber() string {
