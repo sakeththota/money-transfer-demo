@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"os"
 
-	"money-transfer-worker/encryption"
+	"money-transfer-demo/encryption"
 
 	"go.temporal.io/sdk/converter"
 )

@@ -2,14 +2,14 @@ package workflows
 
 import (
 	"fmt"
-	"money-transfer-worker/app"
+	"money-transfer-demo/transfer"
 	"time"
 
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 )
 
-func SagaTransferWorkflow(ctx workflow.Context, input app.SagaTransferInput) error {
+func SagaTransferWorkflow(ctx workflow.Context, input transfer.SagaTransferInput) error {
 	logger := workflow.GetLogger(ctx)
 	logger.Info("Saga Transfer workflow started",
 		"sender", input.SenderName,
@@ -27,8 +27,8 @@ func SagaTransferWorkflow(ctx workflow.Context, input app.SagaTransferInput) err
 	})
 
 	// Unified query handler — same name and shape as all other scenarios
-	ts := &app.TransferStatus{TransferState: "running"}
-	err := workflow.SetQueryHandler(ctx, "transferStatus", func() (app.TransferStatus, error) {
+	ts := &transfer.TransferStatus{TransferState: "running"}
+	err := workflow.SetQueryHandler(ctx, "transferStatus", func() (transfer.TransferStatus, error) {
 		return *ts, nil
 	})
 	if err != nil {

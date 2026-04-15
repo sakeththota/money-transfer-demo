@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"money-transfer-worker/app"
+	"money-transfer-demo/transfer"
 
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
@@ -12,7 +12,7 @@ import (
 
 type SagaActivities struct{}
 
-func (a *SagaActivities) ValidateAccounts(ctx context.Context, input app.SagaTransferInput) error {
+func (a *SagaActivities) ValidateAccounts(ctx context.Context, input transfer.SagaTransferInput) error {
 	logger := activity.GetLogger(ctx)
 	logger.Info("Validating accounts",
 		"sender", input.SenderAccountNumber,

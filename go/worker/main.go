@@ -5,9 +5,9 @@ import (
 	"crypto/tls"
 	"log"
 	"log/slog"
-	"money-transfer-worker/activities"
-	"money-transfer-worker/encryption"
-	"money-transfer-worker/workflows"
+	"money-transfer-demo/activities"
+	"money-transfer-demo/encryption"
+	"money-transfer-demo/workflows"
 	"os"
 
 	"go.temporal.io/sdk/client"
@@ -29,22 +29,16 @@ func main() {
 
 	w := worker.New(c, getEnv("TEMPORAL_MONEYTRANSFER_TASKQUEUE", "MoneyTransfer"), worker.Options{})
 
-	// workflows
-	w.RegisterWorkflowWithOptions(workflows.AccountTransferWorkflow, workflow.RegisterOptions{
-		Name: "AccountTransferWorkflow",
-	})
-	w.RegisterWorkflowWithOptions(workflows.AccountTransferWorkflowScenarios, workflow.RegisterOptions{
-		Name: "AccountTransferWorkflowAdvancedVisibility",
-	})
-	w.RegisterWorkflowWithOptions(workflows.AccountTransferWorkflowScenarios, workflow.RegisterOptions{
-		Name: "AccountTransferWorkflowHumanInLoop",
-	})
-	w.RegisterWorkflowWithOptions(workflows.AccountTransferWorkflowScenarios, workflow.RegisterOptions{
-		Name: "AccountTransferWorkflowAPIDowntime",
-	})
-	w.RegisterWorkflowWithOptions(workflows.AccountTransferWorkflowScenarios, workflow.RegisterOptions{
-		Name: "AccountTransferWorkflowRecoverableFailure",
-	})
+	// Register the same workflow function under different names for each scenario
+	for _, name := range []string{
+		workflows.HappyPath,
+		workflows.AdvancedVisibility,
+		workflows.HumanInLoop,
+		workflows.APIDowntime,
+		workflows.BugInWorkflow,
+	} {
+		w.RegisterWorkflowWithOptions(workflows.AccountTransferWorkflow, workflow.RegisterOptions{Name: name})
+	}
 	w.RegisterWorkflowWithOptions(workflows.SagaTransferWorkflow, workflow.RegisterOptions{
 		Name: "AccountTransferWorkflowSagaRollback",
 	})

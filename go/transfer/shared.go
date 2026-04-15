@@ -1,4 +1,4 @@
-package app
+package transfer
 
 type TransferInput struct {
 	Amount               int    `json:"amount"`

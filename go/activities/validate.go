@@ -2,12 +2,12 @@ package activities
 
 import (
 	"context"
-	"money-transfer-worker/app"
+	"money-transfer-demo/transfer"
 
 	"go.temporal.io/sdk/activity"
 )
 
-func Validate(ctx context.Context, input app.TransferInput) (string, error) {
+func Validate(ctx context.Context, input transfer.TransferInput) (string, error) {
 	logger := activity.GetLogger(ctx)
 	logger.Info("Validate activity started", "input", input)
 

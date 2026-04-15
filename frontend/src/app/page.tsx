@@ -357,8 +357,8 @@ export default function Home() {
     if (transferStatus.workflowStatus === "FAILED") {
       return { label: "Failed", variant: "destructive" as const, icon: XCircle };
     }
-    // Waiting for approval
-    if (transferStatus.transferState === "waiting") {
+    // Waiting for approval (but not if we already sent approval)
+    if (transferStatus.transferState === "waiting" && !approvalSent) {
       return { label: "Awaiting Approval", variant: "warning" as const, icon: Clock };
     }
     // Default: still processing

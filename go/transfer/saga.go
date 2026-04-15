@@ -1,4 +1,4 @@
-package app
+package transfer
 
 type SagaTransferInput struct {
 	SenderAccountNumber   string  `json:"senderAccountNumber"`

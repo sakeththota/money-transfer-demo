@@ -1,4 +1,4 @@
-module money-transfer-worker
+module money-transfer-demo
 
 go 1.23.0
 

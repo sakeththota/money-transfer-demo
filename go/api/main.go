@@ -21,8 +21,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
-	"money-transfer-worker/app"
-	"money-transfer-worker/encryption"
+	"money-transfer-demo/transfer"
+	"money-transfer-demo/encryption"
 )
 
 var temporalClient client.Client
@@ -140,7 +140,7 @@ func handleRunWorkflow(c *gin.Context) {
 	if params.Scenario == "SAGA_ROLLBACK" {
 		fromAcctNum, fromRoutingNum := getAccountDetails(params.FromAccount)
 		toAcctNum, toRoutingNum := getAccountDetails(params.ToAccount)
-		sagaInput := app.SagaTransferInput{
+		sagaInput := transfer.SagaTransferInput{
 			SenderAccountNumber:   fromAcctNum,
 			SenderRoutingNumber:   fromRoutingNum,
 			SenderName:            params.FromAccount,
@@ -154,7 +154,7 @@ func handleRunWorkflow(c *gin.Context) {
 	} else {
 		fromAcctNum, fromRoutingNum := getAccountDetails(params.FromAccount)
 		toAcctNum, toRoutingNum := getAccountDetails(params.ToAccount)
-		transferInput := app.TransferInput{
+		transferInput := transfer.TransferInput{
 			Amount:            params.Amount,
 			FromAccount:       params.FromAccount,
 			FromAccountNumber: fromAcctNum,
@@ -200,7 +200,7 @@ func handleRunQuery(c *gin.Context) {
 		return
 	}
 
-	var status app.TransferStatus
+	var status transfer.TransferStatus
 	if err := resp.Get(&status); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -338,7 +338,7 @@ func handleScheduleWorkflow(c *gin.Context) {
 
 	fromAcctNum, fromRoutingNum := getAccountDetails(params.FromAccount)
 	toAcctNum, toRoutingNum := getAccountDetails(params.ToAccount)
-	transferInput := app.TransferInput{
+	transferInput := transfer.TransferInput{
 		Amount:            params.Amount,
 		FromAccount:       params.FromAccount,
 		FromAccountNumber: fromAcctNum,
