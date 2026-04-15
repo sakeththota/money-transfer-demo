@@ -109,3 +109,10 @@ export async function listSchedules(): Promise<ScheduleStatus[]> {
   if (!res.ok) throw new Error('Failed to list schedules');
   return res.json();
 }
+
+export async function deleteSchedule(scheduleId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/schedule/${scheduleId}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error('Failed to delete schedule');
+}

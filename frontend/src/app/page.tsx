@@ -10,6 +10,7 @@ import {
   listSchedules,
   scheduleWorkflow,
   getScheduleInfo,
+  deleteSchedule,
   ServerInfo,
   TransferStatus,
   WorkflowStatus,
@@ -46,6 +47,7 @@ import {
   RefreshCw,
   Send,
   ShieldCheck,
+  Trash2,
   Wallet,
   XCircle,
   AlertTriangle,
@@ -184,8 +186,10 @@ export default function Home() {
 
   // Fetch schedule info when active workflow is a schedule
   useEffect(() => {
+    // Clear previous schedule info immediately when ID changes
+    setScheduleInfo(null);
+
     if (!activeWorkflowId || !activeWorkflowId.startsWith("schedule-")) {
-      setScheduleInfo(null);
       return;
     }
 
@@ -285,6 +289,20 @@ export default function Home() {
       await approveTransfer(activeWorkflowId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Approval failed");
+    }
+  };
+
+  const handleDeleteSchedule = async (scheduleId: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent selecting the schedule
+    try {
+      await deleteSchedule(scheduleId);
+      if (activeWorkflowId === scheduleId) {
+        setActiveWorkflowId(null);
+        setScheduleInfo(null);
+      }
+      refreshWorkflows();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete schedule");
     }
   };
 
@@ -621,25 +639,36 @@ export default function Home() {
                     {schedules.map((sched) => {
                       const isActive = activeWorkflowId === sched.scheduleId;
                       return (
-                        <button
+                        <div
                           key={sched.scheduleId}
-                          onClick={() => setActiveWorkflowId(sched.scheduleId)}
-                          className={`w-full flex items-center justify-between rounded-lg border p-3 text-left transition-colors ${
+                          className={`w-full flex items-center justify-between rounded-lg border p-3 transition-colors ${
                             isActive
                               ? "border-blue-500 bg-blue-50"
                               : "border-blue-200 bg-blue-50/50 hover:bg-blue-100/50"
                           }`}
                         >
-                          <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setActiveWorkflowId(sched.scheduleId)}
+                            className="flex items-center gap-2 flex-1 text-left"
+                          >
                             <Clock className="h-3.5 w-3.5 text-blue-600" />
-                            <span className="font-mono text-xs truncate max-w-[120px]">
+                            <span className="font-mono text-xs truncate max-w-[100px]">
                               {sched.scheduleId.replace("schedule-", "")}
                             </span>
+                          </button>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="info" className="bg-blue-100 text-blue-700">
+                              {sched.paused ? "Paused" : "Scheduled"}
+                            </Badge>
+                            <button
+                              onClick={(e) => handleDeleteSchedule(sched.scheduleId, e)}
+                              className="p-1 rounded hover:bg-red-100 text-muted-foreground hover:text-red-600 transition-colors"
+                              title="Delete schedule"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
                           </div>
-                          <Badge variant="info" className="bg-blue-100 text-blue-700">
-                            {sched.paused ? "Paused" : "Scheduled"}
-                          </Badge>
-                        </button>
+                        </div>
                       );
                     })}
 

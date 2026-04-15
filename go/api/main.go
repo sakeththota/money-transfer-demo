@@ -40,7 +40,7 @@ func main() {
 	// Configure CORS
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:3000", "http://localhost:7070"},
-		AllowMethods:     []string{"GET", "POST", "OPTIONS"},
+		AllowMethods:     []string{"GET", "POST", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type"},
 		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: true,
@@ -56,6 +56,7 @@ func main() {
 	r.GET("/listSchedules", handleListSchedules)
 	r.POST("/scheduleWorkflow", handleScheduleWorkflow)
 	r.GET("/scheduleInfo/:id", handleScheduleInfo)
+	r.DELETE("/schedule/:id", handleDeleteSchedule)
 	r.GET("/test", func(c *gin.Context) {
 		c.String(http.StatusOK, "Hello from Go API!")
 	})
@@ -352,11 +353,15 @@ func handleScheduleWorkflow(c *gin.Context) {
 		interval = 24 * time.Hour
 	}
 
+	// Calculate offset so schedule starts from "now" rather than epoch-aligned
+	now := time.Now()
+	offset := now.Sub(now.Truncate(interval))
+
 	_, err := temporalClient.ScheduleClient().Create(context.Background(), client.ScheduleOptions{
 		ID: scheduleID,
 		Spec: client.ScheduleSpec{
 			Intervals: []client.ScheduleIntervalSpec{
-				{Every: interval},
+				{Every: interval, Offset: offset},
 			},
 		},
 		Action: &client.ScheduleWorkflowAction{
@@ -398,6 +403,23 @@ func handleScheduleInfo(c *gin.Context) {
 		"nextRunTime": nextRunTime,
 		"paused":      desc.Schedule.State.Paused,
 	})
+}
+
+func handleDeleteSchedule(c *gin.Context) {
+	scheduleID := c.Param("id")
+	if scheduleID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "schedule ID required"})
+		return
+	}
+
+	handle := temporalClient.ScheduleClient().GetHandle(context.Background(), scheduleID)
+	err := handle.Delete(context.Background())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"deleted": scheduleID})
 }
 
 func generateReferenceNumber() string {
