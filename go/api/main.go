@@ -266,11 +266,15 @@ type ScheduleStatus struct {
 }
 
 func handleListSchedules(c *gin.Context) {
-	iter := temporalClient.ScheduleClient().List(context.Background(), client.ScheduleListOptions{
+	iter, err := temporalClient.ScheduleClient().List(context.Background(), client.ScheduleListOptions{
 		PageSize: 20,
 	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
-	var schedules []ScheduleStatus
+	var scheduleIDs []string
 	for iter.HasNext() {
 		entry, err := iter.Next()
 		if err != nil {
@@ -279,18 +283,30 @@ func handleListSchedules(c *gin.Context) {
 		}
 
 		// Only include schedules that start with "schedule-" (from our app)
-		if len(entry.ID) > 0 && entry.ID[:min(9, len(entry.ID))] == "schedule-" {
-			var nextRun *string
-			if len(entry.Info.NextActionTimes) > 0 {
-				t := entry.Info.NextActionTimes[0].Format(time.RFC3339)
-				nextRun = &t
-			}
-			schedules = append(schedules, ScheduleStatus{
-				ScheduleId:  entry.ID,
-				NextRunTime: nextRun,
-				Paused:      entry.Info.Paused,
-			})
+		if len(entry.ID) >= 9 && entry.ID[:9] == "schedule-" {
+			scheduleIDs = append(scheduleIDs, entry.ID)
 		}
+	}
+
+	// Fetch details for each schedule
+	var schedules []ScheduleStatus
+	for _, id := range scheduleIDs {
+		handle := temporalClient.ScheduleClient().GetHandle(context.Background(), id)
+		desc, err := handle.Describe(context.Background())
+		if err != nil {
+			continue // Skip schedules we can't describe
+		}
+
+		var nextRun *string
+		if len(desc.Info.NextActionTimes) > 0 {
+			t := desc.Info.NextActionTimes[0].Format(time.RFC3339)
+			nextRun = &t
+		}
+		schedules = append(schedules, ScheduleStatus{
+			ScheduleId:  id,
+			NextRunTime: nextRun,
+			Paused:      desc.Schedule.State.Paused,
+		})
 	}
 
 	c.JSON(http.StatusOK, schedules)
