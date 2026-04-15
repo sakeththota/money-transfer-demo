@@ -1,0 +1,95 @@
+# Run the full demo with: docker compose up
+# Or individual services: docker compose up worker api frontend
+#
+# For Temporal Cloud: just up-cloud (uses .env.cloud)
+
+services:
+  #############
+  # Temporal  #
+  #############
+  temporal:
+    image: temporalio/temporal
+    ports:
+      - 8233:8233
+    command: server start-dev --ip 0.0.0.0 --search-attribute Step=Keyword
+    healthcheck:
+      test: ["CMD-SHELL", "temporal operator cluster health"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+    profiles:
+      - local
+
+  #############
+  # Go Worker #
+  #############
+  worker:
+    build:
+      context: ./go
+      target: dev
+    environment:
+      ENCRYPT_PAYLOADS: ${ENCRYPT_PAYLOADS:-false}
+      TEMPORAL_ADDRESS: ${TEMPORAL_ADDRESS:-temporal:7233}
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+      TEMPORAL_MONEYTRANSFER_TASKQUEUE: ${TEMPORAL_MONEYTRANSFER_TASKQUEUE:-MoneyTransfer}
+      TEMPORAL_API_KEY: ${TEMPORAL_API_KEY:-}
+      TEMPORAL_CERT_PATH: ${TEMPORAL_CERT_PATH:-}
+      TEMPORAL_KEY_PATH: ${TEMPORAL_KEY_PATH:-}
+    volumes:
+      - ./go:/go/app
+      - ./certs:/certs:ro
+
+  #############
+  # Go API    #
+  #############
+  api:
+    build:
+      context: ./go
+      target: dev-api
+    environment:
+      API_PORT: "7070"
+      ENCRYPT_PAYLOADS: ${ENCRYPT_PAYLOADS:-false}
+      TEMPORAL_ADDRESS: ${TEMPORAL_ADDRESS:-temporal:7233}
+      TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
+      TEMPORAL_MONEYTRANSFER_TASKQUEUE: ${TEMPORAL_MONEYTRANSFER_TASKQUEUE:-MoneyTransfer}
+      TEMPORAL_API_KEY: ${TEMPORAL_API_KEY:-}
+      TEMPORAL_CERT_PATH: ${TEMPORAL_CERT_PATH:-}
+      TEMPORAL_KEY_PATH: ${TEMPORAL_KEY_PATH:-}
+    volumes:
+      - ./go:/go/app
+      - ./certs:/certs:ro
+    ports:
+      - 7070:7070
+
+  ################
+  # Codec Server #
+  ################
+  codec-server:
+    build:
+      context: ./go
+      target: dev-codec
+    environment:
+      CODEC_SERVER_PORT: "8081"
+    volumes:
+      - ./go:/go/app
+    ports:
+      - 8081:8081
+
+  ##############
+  # Frontend   #
+  ##############
+  frontend:
+    build:
+      context: ./frontend
+      target: dev
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:7070
+      NEXT_PUBLIC_CODEC_SERVER_URL: http://localhost:8081
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    ports:
+      - 3000:3000
+    depends_on:
+      - api

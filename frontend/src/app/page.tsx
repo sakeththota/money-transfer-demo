@@ -1,0 +1,598 @@
+"use client";
+
+import { useState, useEffect, useCallback } from "react";
+import {
+  getServerInfo,
+  runWorkflow,
+  queryWorkflow,
+  approveTransfer,
+  listWorkflows,
+  scheduleWorkflow,
+  ServerInfo,
+  TransferStatus,
+  WorkflowStatus,
+} from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  ArrowRight,
+  Building2,
+  CheckCircle2,
+  Clock,
+  CreditCard,
+  ExternalLink,
+  Loader2,
+  RefreshCw,
+  Send,
+  ShieldCheck,
+  Wallet,
+  XCircle,
+  AlertTriangle,
+} from "lucide-react";
+
+const SCENARIOS = [
+  { value: "HAPPY_PATH", label: "Happy Path", description: "Normal execution" },
+  { value: "ADVANCED_VISIBILITY", label: "Advanced Visibility", description: "Search attributes" },
+  { value: "HUMAN_IN_LOOP", label: "Human-In-Loop", description: "Requires approval" },
+  { value: "API_DOWNTIME", label: "API Downtime", description: "Retries on failure" },
+  { value: "BUG_IN_WORKFLOW", label: "Bug in Workflow", description: "Recoverable error" },
+  { value: "SAGA_ROLLBACK", label: "Saga Pattern", description: "Compensation flow" },
+];
+
+const SENDER_NAME = "Saketh Thota";
+
+const FROM_ACCOUNTS = [
+  { id: "checking", name: "Checking Account", number: "****6789", balance: 12458.32 },
+  { id: "savings", name: "Savings Account", number: "****5566", balance: 45231.89 },
+];
+
+const TO_ACCOUNTS = [
+  { id: "justine", name: "Justine Morris", initials: "JM", number: "****7654" },
+  { id: "raul", name: "Raul Ruidiaz", initials: "RR", number: "****9988" },
+  { id: "ian", name: "Ian Wu", initials: "IW", number: "****3456" },
+  { id: "emma", name: "Emma Stockton", initials: "ES", number: "****2233" },
+];
+
+const truncateServerAddress = (address: string | undefined) => {
+  if (!address) return "...";
+  // For cloud addresses like "namespace.accountId.tmprl.cloud:7233"
+  // Show just the namespace part with "..."
+  const parts = address.split(".");
+  if (parts.length >= 2 && address.includes("tmprl.cloud")) {
+    return `${parts[0]}...`;
+  }
+  return address;
+};
+
+const getWorkflowUrl = (workflowId: string, serverInfo: ServerInfo | null) => {
+  if (!serverInfo) return "#";
+  const { namespace, secureConnection } = serverInfo;
+  if (secureConnection) {
+    return `https://cloud.temporal.io/namespaces/${namespace}/workflows/${workflowId}`;
+  }
+  return `http://localhost:8233/namespaces/${namespace}/workflows/${workflowId}`;
+};
+
+export default function Home() {
+  const [serverInfo, setServerInfo] = useState<ServerInfo | null>(null);
+  const [fromAccount, setFromAccount] = useState(FROM_ACCOUNTS[0].name);
+  const [toAccount, setToAccount] = useState(TO_ACCOUNTS[0].name);
+  const [amount, setAmount] = useState("100");
+  const [scenario, setScenario] = useState(SCENARIOS[0].value);
+  const [isSchedule, setIsSchedule] = useState(false);
+  const [intervalHours, setIntervalHours] = useState("24");
+
+  const [activeWorkflowId, setActiveWorkflowId] = useState<string | null>(null);
+  const [transferStatus, setTransferStatus] = useState<TransferStatus | null>(null);
+  const [workflows, setWorkflows] = useState<WorkflowStatus[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getServerInfo()
+      .then(setServerInfo)
+      .catch((err) => console.error("Failed to get server info:", err));
+  }, []);
+
+  const refreshWorkflows = useCallback(() => {
+    listWorkflows()
+      .then((data) => setWorkflows(data || []))
+      .catch((err) => console.error("Failed to list workflows:", err));
+  }, []);
+
+  useEffect(() => {
+    refreshWorkflows();
+    const interval = setInterval(refreshWorkflows, 5000);
+    return () => clearInterval(interval);
+  }, [refreshWorkflows]);
+
+  useEffect(() => {
+    if (!activeWorkflowId) return;
+
+    // Clear previous status when switching workflows
+    setTransferStatus(null);
+
+    // Track if this effect is still active (prevents stale updates)
+    let isActive = true;
+
+    const pollStatus = async () => {
+      try {
+        const status = await queryWorkflow(activeWorkflowId);
+        // Only update if this effect is still active
+        if (!isActive) return;
+
+        setTransferStatus(status);
+        if (
+          status.transferState === "finished" ||
+          status.transferState === "compensated" ||
+          status.workflowStatus === "FAILED" ||
+          status.workflowStatus === "COMPLETED"
+        ) {
+          refreshWorkflows();
+        }
+      } catch (err) {
+        console.error("Failed to query workflow:", err);
+      }
+    };
+
+    pollStatus();
+    const interval = setInterval(pollStatus, 1000);
+
+    return () => {
+      isActive = false;
+      clearInterval(interval);
+    };
+  }, [activeWorkflowId, refreshWorkflows]);
+
+  const handleTransfer = async () => {
+    setIsLoading(true);
+    setError(null);
+    setTransferStatus(null);
+
+    try {
+      const params = {
+        amount: Number(amount),
+        fromAccount,
+        toAccount,
+        scenario,
+      };
+      const result = isSchedule
+        ? await scheduleWorkflow({ ...params, intervalHours: Number(intervalHours) })
+        : await runWorkflow(params);
+      setActiveWorkflowId(result.transferId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Transfer failed");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleApprove = async () => {
+    if (!activeWorkflowId) return;
+    try {
+      await approveTransfer(activeWorkflowId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Approval failed");
+    }
+  };
+
+  const needsApproval = transferStatus?.transferState === "waiting";
+  const isLargeTransfer = Number(amount) > 1000;
+  const selectedFromAccount = FROM_ACCOUNTS.find((a) => a.name === fromAccount);
+  const selectedToAccount = TO_ACCOUNTS.find((a) => a.name === toAccount);
+
+  const getStatusDisplay = () => {
+    if (!transferStatus) return null;
+
+    // Completed states
+    if (transferStatus.transferState === "finished") {
+      return { label: "Completed", variant: "success" as const, icon: CheckCircle2 };
+    }
+    if (transferStatus.workflowStatus === "COMPLETED") {
+      return { label: "Completed", variant: "success" as const, icon: CheckCircle2 };
+    }
+    // Saga compensation states - workflow still fails even after compensation
+    if (transferStatus.transferState === "compensated" || transferStatus.transferState === "compensating") {
+      return { label: "Failed", variant: "destructive" as const, icon: XCircle };
+    }
+    // Rejected (large transfer not approved in time)
+    if (transferStatus.transferState === "rejected") {
+      return { label: "Rejected", variant: "destructive" as const, icon: XCircle };
+    }
+    // Failed state
+    if (transferStatus.workflowStatus === "FAILED") {
+      return { label: "Failed", variant: "destructive" as const, icon: XCircle };
+    }
+    // Waiting for approval
+    if (transferStatus.transferState === "waiting") {
+      return { label: "Awaiting Approval", variant: "warning" as const, icon: Clock };
+    }
+    // Default: still processing
+    return { label: "Processing", variant: "info" as const, icon: RefreshCw };
+  };
+
+  const statusDisplay = getStatusDisplay();
+
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-background to-muted/30">
+      {/* Header */}
+      <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-4 md:px-6">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary">
+              <Building2 className="h-5 w-5 text-primary-foreground" />
+            </div>
+            <div className="hidden sm:block">
+              <h1 className="text-lg font-semibold">Temporal Bank</h1>
+              <p className="text-xs text-muted-foreground">Secure Money Transfers</p>
+            </div>
+          </div>
+
+          <Badge variant="outline" className="gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="hidden sm:inline">{serverInfo?.namespace || "Connecting..."}</span>
+          </Badge>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-5xl px-4 py-6 md:px-6 md:py-8">
+        <div className="grid gap-6 lg:grid-cols-3">
+          {/* Transfer Form */}
+          <div className="lg:col-span-2 space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Send className="h-5 w-5" />
+                  New Transfer
+                </CardTitle>
+                <CardDescription>
+                  Send money securely with durable execution guarantees
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Amount Input */}
+                <div className="space-y-2">
+                  <Label htmlFor="amount">Amount</Label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-2xl text-muted-foreground">$</span>
+                    <Input
+                      id="amount"
+                      type="number"
+                      value={amount}
+                      onChange={(e) => setAmount(e.target.value)}
+                      className="pl-10 text-3xl font-semibold h-16"
+                      placeholder="0.00"
+                      min={1}
+                    />
+                  </div>
+                  {isLargeTransfer && (
+                    <p className="text-sm text-amber-600 flex items-center gap-1">
+                      <AlertTriangle className="h-4 w-4" />
+                      Transfers over $1,000 require approval
+                    </p>
+                  )}
+                </div>
+
+                {/* From / To */}
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>From ({SENDER_NAME})</Label>
+                    <Select value={fromAccount} onValueChange={setFromAccount}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select account" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {FROM_ACCOUNTS.map((acc) => (
+                          <SelectItem key={acc.id} value={acc.name}>
+                            <div className="flex items-center gap-2">
+                              <Wallet className="h-4 w-4 text-muted-foreground" />
+                              <span>{acc.name}</span>
+                              <span className="text-muted-foreground">{acc.number}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {selectedFromAccount && (
+                      <p className="text-sm text-muted-foreground">
+                        Available: ${selectedFromAccount.balance.toLocaleString()}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>To</Label>
+                    <Select value={toAccount} onValueChange={setToAccount}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select recipient" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TO_ACCOUNTS.map((acc) => (
+                          <SelectItem key={acc.id} value={acc.name}>
+                            <div className="flex items-center gap-2">
+                              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
+                                {acc.initials}
+                              </div>
+                              <span>{acc.name}</span>
+                              <span className="text-muted-foreground">{acc.number}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {/* Scenario Selection */}
+                <div className="space-y-3">
+                  <Label>Transfer Mode</Label>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {SCENARIOS.map((s) => (
+                      <button
+                        key={s.value}
+                        onClick={() => setScenario(s.value)}
+                        className={`rounded-lg border p-3 text-left transition-all h-[72px] flex flex-col justify-center ${
+                          scenario === s.value
+                            ? "border-primary bg-primary/5 ring-1 ring-primary"
+                            : "border-border hover:border-primary/50 hover:bg-muted/50"
+                        }`}
+                      >
+                        <div className="text-sm font-medium">{s.label}</div>
+                        <div className="text-xs text-muted-foreground">{s.description}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Schedule Toggle */}
+                <div className="rounded-lg border p-4">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={isSchedule}
+                      onChange={(e) => setIsSchedule(e.target.checked)}
+                      className="mt-1 h-4 w-4 rounded border-input text-primary focus:ring-primary"
+                    />
+                    <div className="space-y-1">
+                      <span className="font-medium">Schedule recurring transfer</span>
+                      <p className="text-sm text-muted-foreground">
+                        Set up automatic transfers using Temporal Schedules
+                      </p>
+                    </div>
+                  </label>
+                  {isSchedule && (
+                    <div className="mt-4 flex items-center gap-2 pl-7">
+                      <span className="text-sm text-muted-foreground">Repeat every</span>
+                      <Input
+                        type="number"
+                        value={intervalHours}
+                        onChange={(e) => setIntervalHours(e.target.value)}
+                        className="w-20"
+                        min={1}
+                      />
+                      <span className="text-sm text-muted-foreground">hours</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Submit */}
+                <Button
+                  onClick={handleTransfer}
+                  disabled={isLoading || !amount || Number(amount) <= 0}
+                  size="lg"
+                  className="w-full"
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      Transfer ${Number(amount).toLocaleString()}
+                      <ArrowRight className="ml-2 h-4 w-4" />
+                    </>
+                  )}
+                </Button>
+
+                {error && (
+                  <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
+                    {error}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Status Sidebar */}
+          <div className="space-y-6">
+            {/* Active Transfer */}
+            {activeWorkflowId && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <CardTitle className="text-base">Transfer Status</CardTitle>
+                    {statusDisplay && (
+                      <Badge variant={statusDisplay.variant} className="gap-1.5">
+                        <statusDisplay.icon className="h-3 w-3" />
+                        {statusDisplay.label}
+                      </Badge>
+                    )}
+                  </div>
+                  <a
+                    href={getWorkflowUrl(activeWorkflowId, serverInfo)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 font-mono text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {activeWorkflowId}
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>Progress</span>
+                      <span>{transferStatus?.progressPercentage ?? 0}%</span>
+                    </div>
+                    <Progress value={transferStatus?.progressPercentage ?? 0} />
+                  </div>
+
+                  {needsApproval && (
+                    <div className="rounded-md border border-amber-200 bg-amber-50 p-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 text-amber-700">
+                          <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
+                          <span className="text-xs">
+                            {isLargeTransfer ? "Requires approval" : "Manual approval"}
+                            {transferStatus?.approvalTime && ` (${transferStatus.approvalTime}s)`}
+                          </span>
+                        </div>
+                        <Button
+                          onClick={handleApprove}
+                          size="sm"
+                          className="h-7 px-2.5 text-xs bg-amber-500 hover:bg-amber-600"
+                        >
+                          Approve
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Recent Transfers */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center justify-between">
+                  Recent Transfers
+                  <Button variant="ghost" size="icon" onClick={refreshWorkflows} className="h-8 w-8">
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {workflows.length === 0 ? (
+                  <div className="py-8 text-center">
+                    <CreditCard className="mx-auto h-10 w-10 text-muted-foreground/50" />
+                    <p className="mt-2 text-sm text-muted-foreground">No recent transfers</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-[280px] overflow-y-auto">
+                    {workflows.map((wf) => {
+                      // Use detailed status for active workflow, fall back to execution status
+                      const isActive = activeWorkflowId === wf.workflowId;
+                      const useDetailedStatus = isActive && statusDisplay;
+
+                      const badgeVariant = useDetailedStatus
+                        ? statusDisplay.variant
+                        : wf.status.includes("COMPLETED")
+                          ? "success"
+                          : wf.status.includes("RUNNING")
+                            ? "info"
+                            : wf.status.includes("FAILED")
+                              ? "destructive"
+                              : "secondary";
+
+                      const badgeLabel = useDetailedStatus
+                        ? statusDisplay.label
+                        : wf.status.replace("WORKFLOW_EXECUTION_STATUS_", "");
+
+                      return (
+                        <button
+                          key={wf.workflowId}
+                          onClick={() => setActiveWorkflowId(wf.workflowId)}
+                          className={`w-full flex items-center justify-between rounded-lg border p-3 text-left transition-colors ${
+                            isActive
+                              ? "border-primary bg-primary/5"
+                              : "hover:bg-muted/50"
+                          }`}
+                        >
+                          <span className="font-mono text-xs truncate max-w-[140px]">
+                            {wf.workflowId}
+                          </span>
+                          <Badge variant={badgeVariant}>
+                            {badgeLabel}
+                          </Badge>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Connection Info */}
+            <Card className={serverInfo?.secureConnection ? "border-emerald-200 bg-emerald-50/50" : "border-dashed"}>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  {serverInfo?.secureConnection ? (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <CardTitle className="text-sm flex items-center gap-1.5 text-emerald-700 cursor-help">
+                            <ShieldCheck className="h-4 w-4" />
+                            Secure Connection
+                          </CardTitle>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>mTLS</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  ) : (
+                    <CardTitle className="text-sm">Connection</CardTitle>
+                  )}
+                  {serverInfo?.encryptPayloads && (
+                    <Badge variant="success" className="text-xs">
+                      Encrypted
+                    </Badge>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent>
+                <dl className="grid gap-1.5 text-xs">
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-muted-foreground">Server</dt>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <dd className="font-mono text-right cursor-help">{truncateServerAddress(serverInfo?.address)}</dd>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="font-mono">{serverInfo?.address}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-muted-foreground">Task Queue</dt>
+                    <dd className="font-mono text-right">{serverInfo?.taskQueue || "..."}</dd>
+                  </div>
+                </dl>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}

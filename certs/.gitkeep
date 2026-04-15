@@ -1,0 +1,6 @@
+# Place your Temporal Cloud mTLS certificates here:
+#   - client.pem (certificate)
+#   - client.key (private key)
+#
+# These files are ignored by git for security.
+# See: just cloud-setup

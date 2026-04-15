@@ -1,0 +1,120 @@
+name: E2E Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Read tool versions
+      id: versions
+      run: |
+        echo "nodejs=$(grep nodejs .tool-versions | cut -d' ' -f2)" >> $GITHUB_OUTPUT
+        echo "java=$(grep java .tool-versions | cut -d' ' -f2)" >> $GITHUB_OUTPUT
+        echo "golang=$(grep golang .tool-versions | cut -d' ' -f2)" >> $GITHUB_OUTPUT
+        echo "python=$(grep python .tool-versions | cut -d' ' -f2)" >> $GITHUB_OUTPUT
+        echo "poetry=$(grep poetry .tool-versions | cut -d' ' -f2)" >> $GITHUB_OUTPUT
+        echo "dotnet=$(grep dotnet-core .tool-versions | cut -d' ' -f2)" >> $GITHUB_OUTPUT
+        echo "ruby=$(grep ruby .tool-versions | cut -d' ' -f2)" >> $GITHUB_OUTPUT
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ steps.versions.outputs.nodejs }}
+        cache: 'npm'
+        cache-dependency-path: |
+          e2e/package-lock.json
+          typescript/package-lock.json
+
+    - name: Cache Playwright browsers
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: ${{ runner.os }}-playwright-${{ hashFiles('e2e/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-playwright-
+
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ steps.versions.outputs.golang }}
+        cache-dependency-path: go/go.sum
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ steps.versions.outputs.python }}
+
+    - name: Setup Poetry
+      uses: snok/install-poetry@v1
+      with:
+        version: ${{ steps.versions.outputs.poetry }}
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ steps.versions.outputs.dotnet }}
+
+    - name: Setup Ruby
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: ${{ steps.versions.outputs.ruby }}
+        bundler-cache: true
+        working-directory: ./ruby
+
+    - name: Install Temporal CLI
+      uses: temporalio/setup-temporal@v0
+
+    - name: Install Playwright
+      working-directory: ./e2e
+      run: |
+        npm ci
+        npx playwright install --only-shell chromium
+
+    - name: Install TypeScript dependencies
+      working-directory: ./typescript
+      run: npm ci
+
+    - name: Install Python dependencies
+      working-directory: ./python
+      run: poetry install --no-root
+
+    - name: Install Ruby dependencies
+      working-directory: ./ruby
+      run: bundle install
+
+    - name: Build Go worker
+      working-directory: ./go
+      run: go mod download
+
+    - name: Make scripts executable
+      run: |
+        chmod +x ui/startlocalwebui.sh
+        chmod +x ui/starttemporalserver.sh
+        chmod +x */startlocalworker.sh
+
+    - name: Run E2E tests
+      working-directory: ./e2e
+      run: ./run.sh --verbose
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: playwright-report
+        path: e2e/playwright-report/
+        retention-days: 30

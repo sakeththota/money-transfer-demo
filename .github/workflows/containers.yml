@@ -1,0 +1,71 @@
+name: Build container images
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    strategy:
+      matrix:
+        # Images to build
+        image:
+          - go
+          - typescript
+          - ui
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: '${{ github.actor }}'
+        password: '${{ secrets.GITHUB_TOKEN }}'
+
+    - name: Generate Docker tags
+      id: docker
+      run: |
+        IMG_NAME="ghcr.io/${GITHUB_REPOSITORY,,}/${{ matrix.image }}"
+
+        PLATFORMS="linux/amd64"
+        PUSH="false"
+        TAGS="${IMG_NAME}:${{ github.sha }}"
+
+        if [ "${{ github.ref == 'refs/heads/main' }}" = "true" ]; then
+          # Add latest tag
+          TAGS="${TAGS},${IMG_NAME}:latest"
+
+          # Add date tag
+          TAGS="${TAGS},${IMG_NAME}:$(date --iso-8601)"
+
+          # Build additional image architectures
+          PLATFORMS="${PLATFORMS},linux/arm64"
+
+          # Always push to registry
+          PUSH="true"
+        fi
+
+        echo "platforms=${PLATFORMS}" >> "$GITHUB_OUTPUT"
+        echo "push=${PUSH}" >> "$GITHUB_OUTPUT"
+        echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+
+    - name: Build and push
+      uses: docker/build-push-action@v5
+      with:
+        context: ${{ matrix.image }}
+        platforms: ${{ steps.docker.outputs.platforms }}
+        push: ${{ steps.docker.outputs.push }}
+        tags: ${{ steps.docker.outputs.tags }}

@@ -1,0 +1,26 @@
+{
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "name": "Money Transfer Demo",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/dotnet:2": {},
+    "ghcr.io/devcontainers/features/go:1": {},
+    "ghcr.io/devcontainers/features/java:1": {
+      "version": "21-tem",
+      "installGradle": true
+    },
+    "ghcr.io/devcontainers/features/node:1": {},
+    "ghcr.io/devcontainers-extra/features/poetry:2": {},
+    "ghcr.io/devcontainers/features/python:1": {},
+    "ghcr.io/devcontainers/features/ruby:1": {
+      "version": "3.2.8"
+    },
+    "ghcr.io/devcontainers-extra/features/temporal-cli:1": {},
+    "ghcr.io/mrsimonemms/devcontainers/tcld:1": {}
+  },
+  "forwardPorts": [
+    7070,
+	  7233,
+	  8233
+  ]
+}
