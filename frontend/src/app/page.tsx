@@ -139,10 +139,12 @@ const truncateServerAddress = (address: string | undefined) => {
 const getWorkflowUrl = (workflowId: string, serverInfo: ServerInfo | null) => {
   if (!serverInfo) return "#";
   const { namespace, secureConnection } = serverInfo;
+  const isSchedule = workflowId.startsWith("schedule-");
+  const resourceType = isSchedule ? "schedules" : "workflows";
   if (secureConnection) {
-    return `https://cloud.temporal.io/namespaces/${namespace}/workflows/${workflowId}`;
+    return `https://cloud.temporal.io/namespaces/${namespace}/${resourceType}/${workflowId}`;
   }
-  return `http://localhost:8233/namespaces/${namespace}/workflows/${workflowId}`;
+  return `http://localhost:8233/namespaces/${namespace}/${resourceType}/${workflowId}`;
 };
 
 export default function Home() {
@@ -161,6 +163,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [scheduleInfo, setScheduleInfo] = useState<ScheduleInfo | null>(null);
   const [approvalStartTime, setApprovalStartTime] = useState<Date | null>(null);
+  const [approvalSent, setApprovalSent] = useState(false);
   const [schedules, setSchedules] = useState<ScheduleStatus[]>([]);
 
   useEffect(() => {
@@ -221,12 +224,20 @@ export default function Home() {
     }
   }, [transferStatus?.transferState, approvalStartTime]);
 
+  // Reset approvalSent when workflow leaves "waiting" state
+  useEffect(() => {
+    if (transferStatus?.transferState !== "waiting") {
+      setApprovalSent(false);
+    }
+  }, [transferStatus?.transferState]);
+
   useEffect(() => {
     if (!activeWorkflowId) return;
 
     // Clear previous status when switching workflows
     setTransferStatus(null);
     setApprovalStartTime(null);
+    setApprovalSent(false);
 
     // Track if this effect is still active (prevents stale updates)
     let isActive = true;
@@ -241,13 +252,21 @@ export default function Home() {
         if (
           status.transferState === "finished" ||
           status.transferState === "compensated" ||
+          status.transferState === "unknown" ||
           status.workflowStatus === "FAILED" ||
           status.workflowStatus === "COMPLETED"
         ) {
           refreshWorkflows();
+          // Clear approval timer when workflow ends
+          setApprovalStartTime(null);
         }
       } catch (err) {
         console.error("Failed to query workflow:", err);
+        // Clear state when query fails (workflow likely closed)
+        if (isActive) {
+          setApprovalStartTime(null);
+          refreshWorkflows();
+        }
       }
     };
 
@@ -286,8 +305,10 @@ export default function Home() {
   const handleApprove = async () => {
     if (!activeWorkflowId) return;
     try {
+      setApprovalSent(true); // Immediately hide approval UI
       await approveTransfer(activeWorkflowId);
     } catch (err) {
+      setApprovalSent(false); // Show approval UI again if it failed
       setError(err instanceof Error ? err.message : "Approval failed");
     }
   };
@@ -306,7 +327,10 @@ export default function Home() {
     }
   };
 
-  const needsApproval = transferStatus?.transferState === "waiting";
+  const needsApproval = !approvalSent &&
+    transferStatus?.transferState === "waiting" &&
+    !transferStatus?.workflowStatus?.includes("FAILED") &&
+    !transferStatus?.workflowStatus?.includes("COMPLETED");
   const isLargeTransfer = Number(amount) > 1000;
   const selectedFromAccount = FROM_ACCOUNTS.find((a) => a.name === fromAccount);
   const selectedToAccount = TO_ACCOUNTS.find((a) => a.name === toAccount);

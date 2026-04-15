@@ -80,7 +80,7 @@ func AccountTransferWorkflowScenarios(ctx workflow.Context, input app.TransferIn
 
 	if BUG == name {
 		// Simulate bug
-		// panic("Simulated bug - fix me!")
+		panic("Simulated bug - fix me!")
 	}
 
 	// Deposit
