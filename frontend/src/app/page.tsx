@@ -62,7 +62,7 @@ const SCENARIOS = [
   { value: "SAGA_ROLLBACK", label: "Saga Pattern", description: "Compensation flow" },
 ];
 
-const SENDER_NAME = "Saketh Thota";
+const SENDER_NAME = process.env.NEXT_PUBLIC_SENDER_NAME || "User";
 
 const FROM_ACCOUNTS = [
   { id: "checking", name: "Checking Account", number: "****6789", balance: 12458.32 },
