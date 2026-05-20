@@ -6,6 +6,7 @@ import (
 	"log"
 	"log/slog"
 	"money-transfer-demo/activities"
+	"money-transfer-demo/balances"
 	"money-transfer-demo/encryption"
 	"money-transfer-demo/workflows"
 	"os"
@@ -21,6 +22,12 @@ import (
 )
 
 func main() {
+	db, err := balances.Open(getEnv("BALANCES_DB_PATH", "data/balances.db"))
+	if err != nil {
+		log.Fatalln("Unable to open balances DB", err)
+	}
+	defer db.Close()
+
 	c, err := client.Dial(getClientOptions())
 	if err != nil {
 		log.Fatalln("Unable to create client", err)
@@ -45,11 +52,9 @@ func main() {
 
 	// activities
 	w.RegisterActivity(activities.Validate)
-	w.RegisterActivity(activities.Deposit)
-	w.RegisterActivity(activities.Withdraw)
-	w.RegisterActivity(activities.UndoWithdraw)
 	w.RegisterActivity(activities.SendNotification)
-	w.RegisterActivity(&activities.SagaActivities{})
+	w.RegisterActivity(&activities.TransferActivities{DB: db})
+	w.RegisterActivity(&activities.SagaActivities{DB: db})
 
 	err = w.Run(worker.InterruptCh())
 	if err != nil {

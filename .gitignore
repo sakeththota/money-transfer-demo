@@ -25,3 +25,6 @@ tmp
 certs/*.pem
 certs/*.key
 certs/*.crt
+
+# SQLite balance database
+go/data/
