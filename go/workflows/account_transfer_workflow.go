@@ -134,6 +134,7 @@ func handleApproval(ctx workflow.Context, scenario string, amount float64, statu
 	}
 
 	logger.Info("Transfer approved")
+	status.TransferState = "approved"
 	return nil
 }
 
