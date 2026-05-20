@@ -61,7 +61,7 @@ func SagaTransferWorkflow(ctx workflow.Context, input transfer.SagaTransferInput
 
 	// Step 2: CheckBalance (no compensation — read-only)
 	workflow.UpsertTypedSearchAttributes(ctx, stepKey.ValueSet("CheckBalance"))
-	err = workflow.ExecuteActivity(actCtx, "CheckBalance", input.SenderAccountNumber, input.Amount).Get(ctx, nil)
+	err = workflow.ExecuteActivity(actCtx, "CheckBalance", input.SenderName, input.Amount).Get(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -72,9 +72,9 @@ func SagaTransferWorkflow(ctx workflow.Context, input transfer.SagaTransferInput
 	workflow.UpsertTypedSearchAttributes(ctx, stepKey.ValueSet("DebitAccount"))
 	var debitTxnRef string
 	compensations = append(compensations, func(ctx workflow.Context) error {
-		return workflow.ExecuteActivity(ctx, "RefundDebit", input.SenderAccountNumber, input.Amount, debitTxnRef).Get(ctx, nil)
+		return workflow.ExecuteActivity(ctx, "RefundDebit", input.SenderName, input.Amount, debitTxnRef).Get(ctx, nil)
 	})
-	err = workflow.ExecuteActivity(actCtx, "DebitAccount", input.SenderAccountNumber, input.Amount).Get(ctx, &debitTxnRef)
+	err = workflow.ExecuteActivity(actCtx, "DebitAccount", input.SenderName, input.Amount).Get(ctx, &debitTxnRef)
 	if err != nil {
 		runCompensations()
 		return err
@@ -83,7 +83,7 @@ func SagaTransferWorkflow(ctx workflow.Context, input transfer.SagaTransferInput
 
 	// Step 4: CreditAccount — FAILS by design in this scenario
 	workflow.UpsertTypedSearchAttributes(ctx, stepKey.ValueSet("CreditAccount"))
-	err = workflow.ExecuteActivity(actCtx, "CreditAccount", input.ReceiverAccountNumber, input.Amount).Get(ctx, nil)
+	err = workflow.ExecuteActivity(actCtx, "CreditAccount", input.ReceiverName, input.Amount).Get(ctx, nil)
 	if err != nil {
 		logger.Info("CreditAccount failed, initiating saga compensation", "error", err)
 
