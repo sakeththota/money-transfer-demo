@@ -116,3 +116,14 @@ export async function deleteSchedule(scheduleId: string): Promise<void> {
   });
   if (!res.ok) throw new Error('Failed to delete schedule');
 }
+
+export async function getBalances(): Promise<Record<string, number>> {
+  const res = await fetch(`${API_BASE}/balances`);
+  if (!res.ok) throw new Error('Failed to fetch balances');
+  return res.json();
+}
+
+export async function resetBalances(): Promise<void> {
+  const res = await fetch(`${API_BASE}/resetBalances`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to reset balances');
+}

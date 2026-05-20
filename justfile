@@ -3,6 +3,8 @@
 
 set quiet
 
+export SENDER_NAME := `id -F 2>/dev/null || whoami`
+
 [private]
 default:
     @just --list

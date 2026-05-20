@@ -2,7 +2,6 @@ package workflows
 
 import (
 	"fmt"
-	"money-transfer-demo/activities"
 	"money-transfer-demo/transfer"
 	"time"
 
@@ -56,7 +55,7 @@ func AccountTransferWorkflow(ctx workflow.Context, input transfer.TransferInput)
 
 	// Step 1: Validate
 	upsertStep(ctx, scenario, "Validate")
-	if err := workflow.ExecuteActivity(ctx, activities.Validate, input).Get(ctx, nil); err != nil {
+	if err := workflow.ExecuteActivity(ctx, "Validate", input).Get(ctx, nil); err != nil {
 		return nil, err
 	}
 	updateProgress(ctx, 1, status, 20)
@@ -69,7 +68,7 @@ func AccountTransferWorkflow(ctx workflow.Context, input transfer.TransferInput)
 
 	// Step 3: Withdraw
 	upsertStep(ctx, scenario, "Withdraw")
-	if err := workflow.ExecuteActivity(ctx, activities.Withdraw, idempotencyKey, input.Amount, scenario).Get(ctx, nil); err != nil {
+	if err := workflow.ExecuteActivity(ctx, "Withdraw", idempotencyKey, input.Amount, scenario, input.FromAccount).Get(ctx, nil); err != nil {
 		return nil, err
 	}
 	updateProgress(ctx, 2, status, 50)
@@ -82,16 +81,16 @@ func AccountTransferWorkflow(ctx workflow.Context, input transfer.TransferInput)
 	// Step 4: Deposit
 	upsertStep(ctx, scenario, "Deposit")
 	var depositResponse transfer.DepositResponse
-	if err := workflow.ExecuteActivity(ctx, activities.Deposit, idempotencyKey, input.Amount, scenario).Get(ctx, &depositResponse); err != nil {
+	if err := workflow.ExecuteActivity(ctx, "Deposit", idempotencyKey, input.Amount, scenario, input.ToAccount).Get(ctx, &depositResponse); err != nil {
 		logger.Info("Deposit failed, reverting withdraw")
-		_ = workflow.ExecuteActivity(ctx, activities.UndoWithdraw, input.Amount).Get(ctx, nil)
+		_ = workflow.ExecuteActivity(ctx, "UndoWithdraw", input.Amount, input.FromAccount).Get(ctx, nil)
 		return nil, fmt.Errorf("deposit failed: %w", err)
 	}
 	updateProgress(ctx, 1, status, 75)
 
 	// Step 5: Send Notification
 	upsertStep(ctx, scenario, "SendNotification")
-	if err := workflow.ExecuteActivity(ctx, activities.SendNotification, input).Get(ctx, nil); err != nil {
+	if err := workflow.ExecuteActivity(ctx, "SendNotification", input).Get(ctx, nil); err != nil {
 		return nil, err
 	}
 	updateProgress(ctx, 1, status, 100)
@@ -100,7 +99,7 @@ func AccountTransferWorkflow(ctx workflow.Context, input transfer.TransferInput)
 }
 
 // handleApproval manages approval logic based on scenario
-func handleApproval(ctx workflow.Context, scenario string, amount int, status *transfer.TransferStatus) error {
+func handleApproval(ctx workflow.Context, scenario string, amount float64, status *transfer.TransferStatus) error {
 	logger := workflow.GetLogger(ctx)
 	needsApproval := false
 	timeout := ApprovalTimeout

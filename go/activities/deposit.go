@@ -2,25 +2,25 @@ package activities
 
 import (
 	"context"
+	"money-transfer-demo/balances"
 	"money-transfer-demo/transfer"
 
 	"go.temporal.io/sdk/activity"
 )
 
-func Deposit(ctx context.Context, idempotencyKey string, amount float32, name string) (transfer.DepositResponse, error) {
+func (a *TransferActivities) Deposit(ctx context.Context, idempotencyKey string, amount float64, scenario string, toAccount string) (transfer.DepositResponse, error) {
 	logger := activity.GetLogger(ctx)
-	logger.Info("Deposit activity started", "amount", amount)
+	logger.Info("Deposit activity started", "amount", amount, "toAccount", toAccount)
 	attempt := activity.GetInfo(ctx).Attempt
 
-	// simulate external API call
-	if err := simulateExternalOperationWithError(1000, name, attempt); err != nil {
+	if err := simulateExternalOperationWithError(1000, scenario, attempt); err != nil {
 		return transfer.DepositResponse{}, err
 	}
-	logger.Info("Deposit call complete", "name", name)
 
-	response := transfer.DepositResponse{
-		DepositId: "example-transfer-id",
+	if err := balances.Credit(a.DB, toAccount, amount); err != nil {
+		return transfer.DepositResponse{}, err
 	}
 
-	return response, nil
+	logger.Info("Deposit call complete", "toAccount", toAccount)
+	return transfer.DepositResponse{DepositId: "example-transfer-id"}, nil
 }

@@ -1,7 +1,7 @@
 package transfer
 
 type TransferInput struct {
-	Amount               int    `json:"amount"`
+	Amount               float64 `json:"amount"`
 	FromAccount          string `json:"fromAccount"`
 	FromAccountNumber    string `json:"fromAccountNumber"`
 	FromRoutingNumber    string `json:"fromRoutingNumber"`

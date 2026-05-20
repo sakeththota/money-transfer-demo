@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"database/sql"
 	"fmt"
 	"log"
 	"log/slog"
@@ -21,14 +22,23 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
-	"money-transfer-demo/transfer"
+	"money-transfer-demo/balances"
 	"money-transfer-demo/encryption"
+	"money-transfer-demo/transfer"
 )
 
 var temporalClient client.Client
+var balancesDB *sql.DB
 
 func main() {
 	var err error
+
+	balancesDB, err = balances.Open(getEnv("BALANCES_DB_PATH", "data/balances.db"))
+	if err != nil {
+		log.Fatalln("Unable to open balances DB", err)
+	}
+	defer balancesDB.Close()
+
 	temporalClient, err = client.Dial(getClientOptions())
 	if err != nil {
 		log.Fatalln("Unable to create Temporal client", err)
@@ -57,6 +67,8 @@ func main() {
 	r.POST("/scheduleWorkflow", handleScheduleWorkflow)
 	r.GET("/scheduleInfo/:id", handleScheduleInfo)
 	r.DELETE("/schedule/:id", handleDeleteSchedule)
+	r.GET("/balances", handleGetBalances)
+	r.POST("/resetBalances", handleResetBalances)
 	r.GET("/test", func(c *gin.Context) {
 		c.String(http.StatusOK, "Hello from Go API!")
 	})
@@ -98,10 +110,10 @@ func handleServerInfo(c *gin.Context) {
 
 // UXParameters from frontend
 type UXParameters struct {
-	Amount      int    `json:"amount"`
-	FromAccount string `json:"fromAccount"`
-	ToAccount   string `json:"toAccount"`
-	Scenario    string `json:"scenario"`
+	Amount      float64 `json:"amount"`
+	FromAccount string  `json:"fromAccount"`
+	ToAccount   string  `json:"toAccount"`
+	Scenario    string  `json:"scenario"`
 }
 
 // Scenario to workflow type mapping
@@ -147,7 +159,7 @@ func handleRunWorkflow(c *gin.Context) {
 			ReceiverAccountNumber: toAcctNum,
 			ReceiverRoutingNumber: toRoutingNum,
 			ReceiverName:          params.ToAccount,
-			Amount:                float64(params.Amount),
+			Amount:                params.Amount,
 			Reference:             referenceNumber,
 		}
 		we, err = temporalClient.ExecuteWorkflow(context.Background(), options, workflowType, sagaInput)
@@ -314,7 +326,7 @@ func handleListSchedules(c *gin.Context) {
 }
 
 type ScheduleParameters struct {
-	Amount        int    `json:"amount"`
+	Amount        float64 `json:"amount"`
 	FromAccount   string `json:"fromAccount"`
 	ToAccount     string `json:"toAccount"`
 	Scenario      string `json:"scenario"`
@@ -420,6 +432,23 @@ func handleDeleteSchedule(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"deleted": scheduleID})
+}
+
+func handleGetBalances(c *gin.Context) {
+	b, err := balances.GetAllBalances(balancesDB)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, b)
+}
+
+func handleResetBalances(c *gin.Context) {
+	if err := balances.ResetBalances(balancesDB); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "reset"})
 }
 
 func generateReferenceNumber() string {

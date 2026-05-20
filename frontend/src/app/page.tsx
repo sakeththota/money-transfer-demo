@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   getServerInfo,
   runWorkflow,
@@ -11,6 +11,8 @@ import {
   scheduleWorkflow,
   getScheduleInfo,
   deleteSchedule,
+  getBalances,
+  resetBalances,
   ServerInfo,
   TransferStatus,
   WorkflowStatus,
@@ -45,6 +47,7 @@ import {
   ExternalLink,
   Loader2,
   RefreshCw,
+  RotateCcw,
   Send,
   ShieldCheck,
   Trash2,
@@ -62,11 +65,11 @@ const SCENARIOS = [
   { value: "SAGA_ROLLBACK", label: "Saga Pattern", description: "Compensation flow" },
 ];
 
-const SENDER_NAME = "Saketh Thota";
+const SENDER_NAME = process.env.NEXT_PUBLIC_SENDER_NAME || "User";
 
 const FROM_ACCOUNTS = [
-  { id: "checking", name: "Checking Account", number: "****6789", balance: 12458.32 },
-  { id: "savings", name: "Savings Account", number: "****5566", balance: 45231.89 },
+  { id: "checking", name: "Checking Account", number: "****6789" },
+  { id: "savings", name: "Savings Account", number: "****5566" },
 ];
 
 const TO_ACCOUNTS = [
@@ -165,12 +168,39 @@ export default function Home() {
   const [approvalStartTime, setApprovalStartTime] = useState<Date | null>(null);
   const [approvalSent, setApprovalSent] = useState(false);
   const [schedules, setSchedules] = useState<ScheduleStatus[]>([]);
+  const [balances, setBalances] = useState<Record<string, number>>({});
+  const [flashState, setFlashState] = useState<Record<string, "credit" | "debit">>({});
+  const prevBalancesRef = useRef<Record<string, number>>({});
+
+  const refreshBalances = useCallback(() => {
+    getBalances()
+      .then((newBalances) => {
+        const prev = prevBalancesRef.current;
+        const flashes: Record<string, "credit" | "debit"> = {};
+
+        for (const [name, balance] of Object.entries(newBalances)) {
+          if (prev[name] !== undefined && balance !== prev[name]) {
+            flashes[name] = balance > prev[name] ? "credit" : "debit";
+          }
+        }
+
+        prevBalancesRef.current = newBalances;
+        setBalances(newBalances);
+
+        if (Object.keys(flashes).length > 0) {
+          setFlashState(flashes);
+          setTimeout(() => setFlashState({}), 700);
+        }
+      })
+      .catch((err) => console.error("Failed to fetch balances:", err));
+  }, []);
 
   useEffect(() => {
     getServerInfo()
       .then(setServerInfo)
       .catch((err) => console.error("Failed to get server info:", err));
-  }, []);
+    refreshBalances();
+  }, [refreshBalances]);
 
   const refreshWorkflows = useCallback(() => {
     listWorkflows()
@@ -186,6 +216,12 @@ export default function Home() {
     const interval = setInterval(refreshWorkflows, 5000);
     return () => clearInterval(interval);
   }, [refreshWorkflows]);
+
+  // Poll balances: 1s when a workflow is active, 5s when idle
+  useEffect(() => {
+    const interval = setInterval(refreshBalances, activeWorkflowId ? 1000 : 5000);
+    return () => clearInterval(interval);
+  }, [activeWorkflowId, refreshBalances]);
 
   // Fetch schedule info when active workflow is a schedule
   useEffect(() => {
@@ -241,28 +277,32 @@ export default function Home() {
 
     // Track if this effect is still active (prevents stale updates)
     let isActive = true;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const isTerminal = (status: TransferStatus) =>
+      status.transferState === "finished" ||
+      status.transferState === "compensated" ||
+      status.workflowStatus === "FAILED" ||
+      status.workflowStatus === "COMPLETED";
 
     const pollStatus = async () => {
       try {
         const status = await queryWorkflow(activeWorkflowId);
-        // Only update if this effect is still active
         if (!isActive) return;
 
         setTransferStatus(status);
-        if (
-          status.transferState === "finished" ||
-          status.transferState === "compensated" ||
-          status.transferState === "unknown" ||
-          status.workflowStatus === "FAILED" ||
-          status.workflowStatus === "COMPLETED"
-        ) {
+        if (isTerminal(status)) {
           refreshWorkflows();
-          // Clear approval timer when workflow ends
+          refreshBalances();
           setApprovalStartTime(null);
+          // Stop polling once workflow is done
+          if (intervalId) {
+            clearInterval(intervalId);
+            intervalId = null;
+          }
         }
       } catch (err) {
         console.error("Failed to query workflow:", err);
-        // Clear state when query fails (workflow likely closed)
         if (isActive) {
           setApprovalStartTime(null);
           refreshWorkflows();
@@ -271,13 +311,13 @@ export default function Home() {
     };
 
     pollStatus();
-    const interval = setInterval(pollStatus, 1000);
+    intervalId = setInterval(pollStatus, 1000);
 
     return () => {
       isActive = false;
-      clearInterval(interval);
+      if (intervalId) clearInterval(intervalId);
     };
-  }, [activeWorkflowId, refreshWorkflows]);
+  }, [activeWorkflowId, refreshWorkflows, refreshBalances]);
 
   const handleTransfer = async () => {
     setIsLoading(true);
@@ -310,6 +350,15 @@ export default function Home() {
     } catch (err) {
       setApprovalSent(false); // Show approval UI again if it failed
       setError(err instanceof Error ? err.message : "Approval failed");
+    }
+  };
+
+  const handleResetBalances = async () => {
+    try {
+      await resetBalances();
+      refreshBalances();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to reset balances");
     }
   };
 
@@ -390,6 +439,50 @@ export default function Home() {
       </header>
 
       <main className="mx-auto max-w-5xl px-4 py-6 md:px-6 md:py-8">
+        {/* Account Balance Cards */}
+        <div className="mb-6 grid gap-4 sm:grid-cols-2">
+          <Card className={`transition-colors ${flashState[fromAccount] === "debit" ? "animate-flash-debit" : flashState[fromAccount] === "credit" ? "animate-flash-credit" : ""}`}>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">From: {fromAccount}</p>
+                  <p className={`text-2xl font-bold tabular-nums transition-colors ${flashState[fromAccount] === "debit" ? "text-red-600" : flashState[fromAccount] === "credit" ? "text-emerald-600" : ""}`}>
+                    {balances[fromAccount] !== undefined
+                      ? `$${balances[fromAccount].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                      : "..."}
+                  </p>
+                </div>
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+                  <Wallet className="h-5 w-5 text-primary" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className={`transition-colors ${flashState[toAccount] === "credit" ? "animate-flash-credit" : flashState[toAccount] === "debit" ? "animate-flash-debit" : ""}`}>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">To: {toAccount}</p>
+                  <p className={`text-2xl font-bold tabular-nums transition-colors ${flashState[toAccount] === "credit" ? "text-emerald-600" : flashState[toAccount] === "debit" ? "text-red-600" : ""}`}>
+                    {balances[toAccount] !== undefined
+                      ? `$${balances[toAccount].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                      : "..."}
+                  </p>
+                </div>
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+                  <CreditCard className="h-5 w-5 text-primary" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <div className="flex justify-end -mt-2">
+            <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={handleResetBalances}>
+              <RotateCcw className="mr-1 h-3 w-3" />
+              Reset Balances
+            </Button>
+          </div>
+        </div>
+
         <div className="grid gap-6 lg:grid-cols-3">
           {/* Transfer Form */}
           <div className="lg:col-span-2 space-y-6">
@@ -447,9 +540,9 @@ export default function Home() {
                         ))}
                       </SelectContent>
                     </Select>
-                    {selectedFromAccount && (
+                    {selectedFromAccount && balances[fromAccount] !== undefined && (
                       <p className="text-sm text-muted-foreground">
-                        Available: ${selectedFromAccount.balance.toLocaleString()}
+                        Available: ${balances[fromAccount].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </p>
                     )}
                   </div>
