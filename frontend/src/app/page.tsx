@@ -282,7 +282,6 @@ export default function Home() {
     const isTerminal = (status: TransferStatus) =>
       status.transferState === "finished" ||
       status.transferState === "compensated" ||
-      status.transferState === "unknown" ||
       status.workflowStatus === "FAILED" ||
       status.workflowStatus === "COMPLETED";
 
