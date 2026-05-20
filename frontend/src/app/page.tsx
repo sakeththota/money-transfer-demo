@@ -118,7 +118,7 @@ function CountdownTimer({ targetTime, label, onExpire }: {
   };
 
   return (
-    <div className="flex items-center gap-2 font-mono text-sm">
+    <div className="flex items-center gap-2 text-sm tabular-nums">
       <Clock className="h-4 w-4 text-muted-foreground" />
       {label && <span className="text-muted-foreground">{label}</span>}
       <span className={timeLeft <= 10 ? "text-amber-600 font-semibold" : ""}>
@@ -501,13 +501,13 @@ export default function Home() {
                 <div className="space-y-2">
                   <Label htmlFor="amount">Amount</Label>
                   <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-2xl text-muted-foreground">$</span>
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-3xl font-bold text-muted-foreground">$</span>
                     <Input
                       id="amount"
                       type="number"
                       value={amount}
                       onChange={(e) => setAmount(e.target.value)}
-                      className="pl-10 text-3xl font-semibold h-16"
+                      className="pl-10 text-3xl font-bold tabular-nums h-16"
                       placeholder="0.00"
                       min={1}
                     />
@@ -670,7 +670,7 @@ export default function Home() {
                     href={getWorkflowUrl(activeWorkflowId, serverInfo)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 font-mono text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
                   >
                     {activeWorkflowId}
                     <ExternalLink className="h-3 w-3" />
@@ -769,7 +769,7 @@ export default function Home() {
                             className="flex items-center gap-2 flex-1 text-left"
                           >
                             <Clock className="h-3.5 w-3.5 text-blue-600" />
-                            <span className="font-mono text-xs truncate max-w-[100px]">
+                            <span className="text-xs truncate max-w-[100px]">
                               {sched.scheduleId.replace("schedule-", "")}
                             </span>
                           </button>
@@ -819,7 +819,7 @@ export default function Home() {
                               : "hover:bg-muted/50"
                           }`}
                         >
-                          <span className="font-mono text-xs truncate max-w-[140px]">
+                          <span className="text-xs truncate max-w-[140px]">
                             {wf.workflowId}
                           </span>
                           <Badge variant={badgeVariant}>
@@ -868,17 +868,17 @@ export default function Home() {
                     <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <dd className="font-mono text-right cursor-help">{truncateServerAddress(serverInfo?.address)}</dd>
+                          <dd className="text-right cursor-help">{truncateServerAddress(serverInfo?.address)}</dd>
                         </TooltipTrigger>
                         <TooltipContent>
-                          <p className="font-mono">{serverInfo?.address}</p>
+                          <p>{serverInfo?.address}</p>
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
                   </div>
                   <div className="flex justify-between gap-2">
                     <dt className="text-muted-foreground">Task Queue</dt>
-                    <dd className="font-mono text-right">{serverInfo?.taskQueue || "..."}</dd>
+                    <dd className="text-right">{serverInfo?.taskQueue || "..."}</dd>
                   </div>
                 </dl>
               </CardContent>
