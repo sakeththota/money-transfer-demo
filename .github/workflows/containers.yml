@@ -17,8 +17,7 @@ jobs:
         # Images to build
         image:
           - go
-          - typescript
-          - ui
+          - frontend
     steps:
     - uses: actions/checkout@v4
 
